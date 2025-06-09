@@ -6,6 +6,7 @@ div.row
     :post="post"
     :showLike="showLike"
     @like="$emit('like', $event)"
+    @view-post="$emit('view-post', $event)"
   )
 </template>
 
@@ -27,8 +28,8 @@ export default {
       default: true
     }
   },
-  emits: ['like']
-}
+  emits: ['like', 'view-post']
+};
 </script>
 
 <style scoped lang="stylus">

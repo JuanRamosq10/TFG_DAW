@@ -1,6 +1,8 @@
 <template lang="pug">
 figure.card.example-1
-  .wrapper(:style="{ backgroundImage: post.source ? 'url(http://localhost:4000/' + post.source + ')' : 'url(https://placecats.com/300/300)' }")
+  .wrapper(
+    :style="{ backgroundImage: post.source ? 'url(http://localhost:4000/' + post.source + ')' : 'url(https://placecats.com/300/300)' }"
+  )
     .date
       span.day {{ day }}
       span.month {{ month }}
@@ -21,7 +23,11 @@ figure.card.example-1
             a.las.la-comment(href="#", title="Comentarios")
             span.count 0
         h1.title
-          a(href="#") {{ post.title }}
+          a(
+            href="#"
+            @click.prevent="$emit('view-post', post)"
+            title="Ver detalles"
+          ) {{ post.title }}
         p.text {{ post.description }}
 </template>
 
@@ -29,7 +35,10 @@ figure.card.example-1
 export default {
   name: 'PostCard',
   props: {
-    post: Object,
+    post: {
+      type: Object,
+      required: true
+    },
     showLike: {
       type: Boolean,
       default: true
@@ -46,7 +55,7 @@ export default {
       return new Date(this.post.created_at).getFullYear();
     }
   }
-}
+};
 </script>
 
 <style lang="stylus" scoped>
@@ -153,6 +162,7 @@ $open-sans = 'Open Sans', sans-serif
     color white
     font-weight 700
     font-size 1.2em
+    cursor pointer
 
 .text
   height 70px
