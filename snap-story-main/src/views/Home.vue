@@ -10,7 +10,7 @@ main
       :showLike="true"
     )
 
-    //– Modal grande para mostrar la publicación completa
+    //– Modal para mostrar la publicación completa y comentarios
     div.modal-backdrop(v-if="showModal" @click="closeModal")
       div.modal-container(@click.stop)
         div.modal-content(v-if="selectedPost")
@@ -22,19 +22,25 @@ main
               alt="Imagen de la publicación"
             )
             div.no-image(v-else) No hay imagen disponible
-          //– DERECHA: Comentarios arriba + contador de likes abajo
+          //– DERECHA: Comentarios y likes
           div.modal-right
-            //– Zona de comentarios (scrollable)
             div.comments-area
               h3 Comentarios
-              //– Aquí irán los comentarios cuando los implementes
-              p.comment-placeholder No hay comentarios aún.
-            //– Zona inferior: contador de likes
+              div.comment-list
+                p(v-if="comments.length === 0").comment-placeholder No hay comentarios aún.
+                div.comment(v-for="c in comments" :key="c.comentario_id")
+                  strong {{ c.username }}:
+                  span {{ c.comentario_text }}
+              div.comment-form
+                textarea.comment-field(
+                  v-model="newComment"
+                  placeholder="Añade un comentario..."
+                )
+                button.btn-send(@click="sendComment") Enviar
             div.likes-area
               span.stat-item
                 i.las.la-heart
                 |  {{ selectedPost.likes || 0 }} Me gusta
-            //– Botón de cerrar, ancho completo
             button.btn-close(@click="closeModal") Cerrar
 </template>
 
@@ -46,81 +52,99 @@ export default {
   name: 'Home',
   components: { PostGrid },
   setup() {
-    const token = ref(localStorage.getItem('token') || '');
-    const posts = ref([]);
-
-    const showModal = ref(false);
+    const token        = ref(localStorage.getItem('token') || '');
+    const posts        = ref([]);
+    const showModal    = ref(false);
     const selectedPost = ref(null);
+    const comments     = ref([]);
+    const newComment   = ref('');
 
     const fetchPosts = async () => {
       try {
         const res = await fetch('http://localhost:4000/api/posts');
-        const data = await res.json();
-        posts.value = data;
+        posts.value = await res.json();
       } catch (error) {
         console.error('Error fetching posts:', error);
       }
     };
 
+    const openModal = (post) => {
+      selectedPost.value = post;
+      showModal.value    = true;
+      fetchComments(post.post_id);
+    };
+
+    const closeModal = () => {
+      showModal.value    = false;
+      selectedPost.value = null;
+      comments.value     = [];
+      newComment.value   = '';
+    };
+
     const likePost = async (post) => {
-      if (!token.value || token.value === 'No hay token almacenado') {
+      if (!token.value) {
         alert('Debes iniciar sesión para dar like');
         return;
       }
       try {
+        const res = await fetch(`http://localhost:4000/api/posts/${post.post_id}/like`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token.value}` }
+        });
+        if (res.ok) await fetchPosts();
+      } catch (error) {
+        console.error('Error al dar like:', error);
+      }
+    };
+
+    const fetchComments = async (postId) => {
+      try {
+        const res = await fetch(`http://localhost:4000/api/posts/${postId}/comments`);
+        comments.value = await res.json();
+      } catch (error) {
+        console.error('Error al obtener comentarios:', error);
+      }
+    };
+
+    const sendComment = async () => {
+      if (!newComment.value.trim()) return;
+      try {
         const res = await fetch(
-          `http://localhost:4000/api/posts/${post.post_id}/like`,
+          `http://localhost:4000/api/posts/${selectedPost.value.post_id}/comments`,
           {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token.value}`,
+              'Authorization': `Bearer ${token.value}`
             },
+            body: JSON.stringify({ comentario: newComment.value })
           }
         );
-        const data = await res.json();
-        if (
-          data.message === 'Like agregado correctamente' ||
-          data.message === 'Ya le diste like a este post'
-        ) {
-          await fetchPosts();
+        if (res.ok) {
+          newComment.value = '';
+          await fetchComments(selectedPost.value.post_id);
+        } else {
+          alert('Error al enviar comentario');
         }
       } catch (error) {
-        alert('Error al dar like');
+        console.error('Error al enviar comentario:', error);
       }
-    };
-
-    const openModal = (post) => {
-      selectedPost.value = post;
-      showModal.value = true;
-    };
-
-    const closeModal = () => {
-      showModal.value = false;
-      selectedPost.value = null;
-    };
-
-    const formatDate = (isoString) => {
-      if (!isoString) return '';
-      const date = new Date(isoString);
-      const day = date.getDate();
-      const month = date.toLocaleString('default', { month: 'long' });
-      const year = date.getFullYear();
-      return `${day} de ${month} de ${year}`;
     };
 
     onMounted(fetchPosts);
 
     return {
       posts,
-      likePost,
       showModal,
       selectedPost,
       openModal,
       closeModal,
-      formatDate,
+      likePost,
+      comments,
+      newComment,
+      sendComment
     };
-  },
+  }
 };
 </script>
 
@@ -137,9 +161,6 @@ main
 article
   margin-top 30px
 
-/*=========================
-  Estilos del modal (30 % más pequeño)
-=========================*/
 .modal-backdrop
   position fixed
   top 0
@@ -153,30 +174,24 @@ article
   z-index 1000
 
 .modal-container
-  /* Ahora ocupa el 70 % de ancho y alto de la pantalla */
   width 70vw
   height 70vh
-  border-radius 0
+  background-color #fff
   overflow hidden
   display flex
   flex-direction column
-  background-color #fff
-  box-shadow none
 
-/* Contenedor principal dividido en dos columnas */
 .modal-content
   display flex
   flex 1
 
-/*========= IZQUIERDA: Imagen en grande ========*/
 .modal-left
-  flex 2                     /* La imagen ocupa 2/3 del ancho */
-  background-color #000
+  flex 2
+  background #000
   display flex
   align-items center
   justify-content center
-  overflow hidden
-  min-height 0                /* Importante para que el flex funcione */
+  min-height 0
   @media (max-width 768px)
     max-height 300px
 
@@ -184,71 +199,100 @@ article
   width 100%
   height auto
   object-fit contain
-  max-height 70vh            /* Ajustar para no exceder el modal */
+  max-height 70vh
 
 .no-image
   color #fff
   font-size 1em
   text-align center
 
-/*========= DERECHA: Comentarios y contador de likes ========*/
 .modal-right
-  flex 1                     /* La columna de la derecha ocupa 1/3 del ancho */
+  flex 1
   display flex
   flex-direction column
   padding 20px
-  min-height 0                /* Para habilitar overflow */
+  min-height 0
 
-  /*===== Zona de comentarios (scrollable) =====*/
-  .comments-area
-    flex 1                   /* Ocupa todo el espacio posible */
-    overflow-y auto
-    border-bottom 1px solid #e0e0e0
-    padding-bottom 12px
-    margin-bottom 12px
+.comments-area
+  flex 1
+  overflow-y auto
+  border-bottom 1px solid #e0e0e0
+  padding-bottom 12px
+  margin-bottom 12px
 
-    h3
-      font-size 1.2em
+  h3
+    font-size 1.2em
+    margin-bottom 8px
+    color #333
+
+  .comment-list
+    .comment
       margin-bottom 8px
-      color #333
 
-    .comment-placeholder
-      font-size 0.9em
-      color #777
-
-  /*===== Zona inferior de likes =====*/
-  .likes-area
-    padding-top 12px
-    border-top 1px solid #e0e0e0
-    text-align center
-    flex-none                 /* No crece ni se encoge con el scroll */
-
-    .stat-item
-      display flex
-      align-items center
-      justify-content center
-      gap 6px
+  .comment-form
+    display flex
+    flex-direction column
+    gap 8px
+    textarea.comment-field
+      width 100%
+      aspect-ratio 1/2
+      padding 18px 20px
+      resize vertical
+      border 1px solid #ccc
+      border-radius 20px
       font-size 1.1em
-      color #e74c3c
+      font-family inherit
+      transition all 0.3s ease
+      &::placeholder
+        color #999
+        font-style italic
+      &:focus
+        border-color #3498db
+        outline none
+        background-color #f9fcff
+    .btn-send
+      width 100%
+      padding 10px
+      background #3498db
+      color #fff
+      border none
+      border-radius 10px
+      cursor pointer
+      font-weight 500
+      transition background-color 0.3s ease
+      &:hover
+        background #2980b9
 
-      i
-        font-size 1.4em
+.likes-area
+  padding-top 12px
+  border-top 1px solid #e0e0e0
+  text-align center
+  flex-none
 
-  /*===== Botón de cerrar =====*/
-  .btn-close
-    width 100%               /* El botón ocupa todo el ancho de la columna derecha */
-    margin-top 12px
-    padding 12px 0
-    background-color #c0392b
-    color #fff
-    border none
-    border-radius 4px
-    cursor pointer
-    font-size 1em
-    &:hover
-      background-color #a93226
+  .stat-item
+    display flex
+    align-items center
+    justify-content center
+    gap 6px
+    font-size 1.1em
+    color #e74c3c
 
-/* Ajustes en móviles: apilar columnas */
+    i
+      font-size 1.4em
+
+.btn-close
+  width 100%
+  margin-top 12px
+  padding 12px 0
+  background-color #c0392b
+  color #fff
+  border none
+  border-radius 4px
+  cursor pointer
+  font-size 1em
+  &:hover
+    background-color #a93226
+
 @media (max-width 768px)
   .modal-content
     flex-direction column

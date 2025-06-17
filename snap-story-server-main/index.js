@@ -133,29 +133,32 @@ app.get('/api/profile', verifyToken, (req, res) => {
 // ----------- POSTS (ahora con contador de likes) ----------- //
 app.get('/api/posts', (req, res) => {
   const query = `
-    SELECT 
-      posts.post_id,
-      posts.title,
-      posts.description,
-      posts.source,
-      posts.user_id,
-      posts.created_at,
-      users.username,
-      COUNT(likes.like_id) AS likes
-    FROM posts
-    LEFT JOIN users ON posts.user_id = users.user_id
-    LEFT JOIN likes ON posts.post_id = likes.post_id
-    GROUP BY posts.post_id
-  `;
+  SELECT
+    p.post_id,
+    p.title,
+    p.description,
+    p.source,
+    p.user_id,
+    p.created_at,
+    u.username,
+    COUNT(DISTINCT l.like_id)           AS likes,
+    COUNT(DISTINCT c.comentario_id)     AS comments
+  FROM posts p
+  LEFT JOIN users u       ON p.user_id = u.user_id
+  LEFT JOIN likes l       ON p.post_id = l.post_id
+  LEFT JOIN comentarios c ON p.post_id = c.post_comentado_id
+  GROUP BY p.post_id
+`;
   db.query(query, (err, results) => {
     if (err) {
       console.error('❌ Error en la consulta:', err);
       return res.status(500).json({ message: 'Error del servidor' });
     }
-    const posts = results.map(post => ({
-      ...post,
-      likes: Number(post.likes) || 0
-    }));
+const posts = results.map(p => ({
+  ...p,
+  likes:    Number(p.likes)    || 0,
+  comments: Number(p.comments) || 0
+}));
     res.json(posts);
   });
 });
@@ -617,6 +620,74 @@ io.on('connection', socket => {
     console.log(`❌ Usuario desconectado: ${socket.user.username}`);
   });
 });
+
+
+
+/* ───────────── COMENTARIOS ───────────── */
+
+// 1) Obtener todos los comentarios de un post
+app.get('/api/posts/:postId/comments', (req, res) => {
+  const postId = parseInt(req.params.postId, 10);
+
+  const q = `
+    SELECT
+      c.comentario_id,
+      c.comentario_text,
+      c.created_at,
+      u.user_id,
+      u.username,
+      u.full_name
+    FROM comentarios c
+    JOIN users u ON u.user_id = c.usuario_comenta_id
+    WHERE c.post_comentado_id = ?
+    ORDER BY c.created_at ASC
+  `;
+
+  db.query(q, [postId], (err, rows) => {
+    if (err) {
+      console.error('❌ Error al obtener comentarios:', err);
+      return res.status(500).json({ message: 'Error del servidor' });
+    }
+    res.json(rows);
+  });
+});
+
+// 2) Añadir un comentario a un post (requiere token)
+app.post('/api/posts/:postId/comments', verifyToken, (req, res) => {
+  const postId         = parseInt(req.params.postId, 10);
+  const userId         = req.user.id;
+  const { comentario } = req.body;
+
+  if (!comentario?.trim()) {
+    return res.status(400).json({ message: 'El comentario no puede estar vacío' });
+  }
+
+  const q = `
+    INSERT INTO comentarios (comentario_text, usuario_comenta_id, post_comentado_id)
+    VALUES (?, ?, ?)
+  `;
+
+  db.query(q, [comentario.trim(), userId, postId], (err, result) => {
+    if (err) {
+      console.error('❌ Error al insertar comentario:', err);
+      return res.status(500).json({ message: 'Error del servidor' });
+    }
+
+    res.json({
+      comentario_id:  result.insertId,
+      comentario_text: comentario.trim(),
+      created_at:      new Date(),
+      user_id:         userId,
+      username:        req.user.username
+    });
+  });
+});
+
+
+
+
+
+
 
 // ----------- INICIO SERVIDOR ----------- //
 server.listen(4000, () => {

@@ -20,8 +20,12 @@ figure.card.example-1
               title="Me gusta"
             )
             span.count {{ post.likes || 0 }}
-            a.las.la-comment(href="#", title="Comentarios")
-            span.count 0
+            a.las.la-comment(
+              href="#"
+              @click.prevent="$emit('view-post', post)"
+              title="Comentarios"
+            )
+            span.count {{ post.comments || 0 }}
         h1.title
           a(
             href="#"
