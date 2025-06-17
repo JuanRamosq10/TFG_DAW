@@ -5,6 +5,16 @@ main.profile
     div.avatar-container
       h1 {{ username }}
       p.bio Esta es tu biografía. Cuéntanos algo sobre ti.
+  
+  // Botones condicionales
+  div.button-wrapper
+  div.buttons(v-if="isCurrentUser")
+    button.btn-edit Editar Perfil
+  div.buttons(v-else)
+    button.btn-follow(@click="toggleSeguir") {{ yaSigo ? 'Dejar de seguir' : 'Seguir' }}
+    button.btn-message Enviar mensaje
+
+
 
   section.profile-stats
     div.stat
@@ -29,6 +39,7 @@ main.profile
     h2(v-text="tabTitles[currentTab]")
     div.posts-grid
       PostGrid(:posts="currentPosts" :showLike="false")
+      
 </template>
 
 <script>
@@ -41,12 +52,13 @@ export default {
     return {
       username: '',
       currentTab: 0,
-      tabTitles: ['Mis publicaciones', 'Publicaciones guardadas', 'Publicaciones compartidas'],
+      tabTitles: ['Publicaciones', 'Publicaciones guardadas', 'Publicaciones compartidas'],
       myPosts: [],
       savedPosts: [],
       sharedPosts: [],
       seguidores: [],
-      seguidos: []
+      seguidos: [],
+      yaSigo: false  // 👈 asegúrate que esté aquí
     };
   },
   computed: {
@@ -58,21 +70,61 @@ export default {
       if (this.currentTab === 1) return this.savedPosts;
       if (this.currentTab === 2) return this.sharedPosts;
       return [];
+    },
+    isCurrentUser() {
+    const loggedUserId = localStorage.getItem('userId');
+    const profileUserId = this.$route.params.userId;
+    return loggedUserId === profileUserId;
     }
   },
   mounted() {
-    this.username = localStorage.getItem('username') || 'Invitado';
-    this.fetchMyPosts();
-    this.fetchSavedPosts();
-    this.fetchSharedPosts();
-    this.getSeguidores();
-    this.getSeguidos();
+    this.loadProfileData();
+  },
+  watch: {
+    '$route.params.userId'(newUserId, oldUserId) {
+      if (newUserId !== oldUserId) {
+        this.loadProfileData();
+      }
+    }
   },
   methods: {
+    loadProfileData() {
+      this.checkSiYaSigo();
+      this.fetchMyPosts();
+      this.fetchSavedPosts();
+      this.fetchSharedPosts();
+      this.getSeguidores();
+      this.getSeguidos();
+      this.fetchProfileUser();
+    },
+    async fetchProfileUser() {
+      try {
+        const token = localStorage.getItem('token');
+        const userId = this.$route.params.userId;
+
+        const res = await fetch(`http://localhost:4000/api/users/${userId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        if (res.ok) {
+          const user = await res.json();
+          this.username = user.username;
+          this.fullName = user.full_name;
+          this.bio = user.bio || ''; // Si agregas biografía
+          this.profileImg = user.profile_img;
+          this.email = user.email;
+        } else {
+          console.error('❌ Error al obtener perfil:', await res.text());
+        }
+      } catch (e) {
+        console.error('❌ Error en fetchProfileUser:', e);
+      }
+    },
     async fetchMyPosts() {
       try {
         const token = localStorage.getItem('token');
-        const res = await fetch('http://localhost:4000/api/myposts', {
+        const userId = this.$route.params.userId;
+        const res = await fetch(`http://localhost:4000/api/posts/${userId}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (res.ok) this.myPosts = await res.json();
@@ -83,7 +135,8 @@ export default {
     async fetchSavedPosts() {
       try {
         const token = localStorage.getItem('token');
-        const res = await fetch('http://localhost:4000/api/savedposts', {
+        const userId = this.$route.params.userId;
+        const res = await fetch(`http://localhost:4000/api/savedposts/${userId}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (res.ok) this.savedPosts = await res.json();
@@ -94,7 +147,8 @@ export default {
     async fetchSharedPosts() {
       try {
         const token = localStorage.getItem('token');
-        const res = await fetch('http://localhost:4000/api/sharedposts', {
+        const userId = this.$route.params.userId;
+        const res = await fetch(`http://localhost:4000/api/sharedposts/${userId}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (res.ok) this.sharedPosts = await res.json();
@@ -105,27 +159,79 @@ export default {
     async getSeguidores() {
       try {
         const token = localStorage.getItem('token');
-        const res = await fetch('http://localhost:4000/api/seguidores', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (res.ok) this.seguidores = await res.json();
+        const userId = this.$route.params.userId;
+        const res = await fetch(`http://localhost:4000/api/seguidores/${userId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) this.seguidores = await res.json();
       } catch (e) {
         console.error('Error al obtener seguidores:', e);
-      }
+    }
     },
     async getSeguidos() {
       try {
         const token = localStorage.getItem('token');
-        const res = await fetch('http://localhost:4000/api/seguidos', {
+        const userId = this.$route.params.userId;
+        const res = await fetch(`http://localhost:4000/api/seguidos/${userId}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (res.ok) this.seguidos = await res.json();
+        console.log('📌 Seguidores:', this.seguidores);
       } catch (e) {
         console.error('Error al obtener seguidos:', e);
       }
+    },
+    async checkSiYaSigo() {
+      try {
+        const token = localStorage.getItem('token');
+        const userId = this.$route.params.userId;
+        const miId = parseInt(localStorage.getItem('userId'));
+
+        const res = await fetch(`http://localhost:4000/api/seguidores/${userId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        if (res.ok) {
+          const seguidores = await res.json();
+          this.seguidores = seguidores;
+
+          // Busca si el logueado está en la lista de seguidores
+          this.yaSigo = seguidores.some(s => s.user_id === miId);
+          console.log('¿Ya sigo?', this.yaSigo);
+        }
+      } catch (e) {
+        console.error('Error verificando si ya sigues al usuario:', e);
+      }
+    },
+    async toggleSeguir() {
+  const token = localStorage.getItem('token');
+  const userId = this.$route.params.userId;
+  const miId = localStorage.getItem('userId');
+
+  try {
+    const url = `http://localhost:4000/api/seguir/${userId}`;
+    const options = {
+      method: this.yaSigo ? 'DELETE' : 'POST',
+      headers: { Authorization: `Bearer ${token}` }
+    };
+
+    const res = await fetch(url, options);
+
+    if (res.ok) {
+      this.yaSigo = !this.yaSigo; // Cambia el estado visual del botón
+      await this.getSeguidores(); // Refresca la lista para actualizar los contadores
+    } else {
+      const errData = await res.json();
+      console.error('Error:', errData.message);
     }
+  } catch (e) {
+    console.error('Error al alternar seguimiento:', e);
+  }
+}
+
   }
 };
+
 </script>
 
 <style scoped>
@@ -183,4 +289,36 @@ export default {
   background-color: #034378;
   color: white;
 }
+.button-wrapper {
+  display: flex;
+  justify-content: center;
+  margin: 15px 0;
+}
+
+.buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.btn-edit,
+.btn-follow,
+.btn-message {
+  background-color: #ffc107;
+  border: none;
+  border-radius: 20px;
+  padding: 6px 16px;
+  font-size: 0.85em;
+  font-weight: bold;
+  color: #fff;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.btn-edit:hover,
+.btn-follow:hover,
+.btn-message:hover {
+  background-color: #e0a800;
+}
+
+
 </style>

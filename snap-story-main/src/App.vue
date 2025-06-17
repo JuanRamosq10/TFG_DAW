@@ -18,7 +18,7 @@
                   router-link(to="/upload")
                     i.las.la-plus-circle
                 li
-                  router-link(to="/profile")
+                  a(href="#" @click.prevent="goToProfile")
                     i.las.la-user-circle
                 li
                   router-link(to="/chat")
@@ -35,7 +35,8 @@ export default {
   data() {
     return {
       details: true,
-      logged: false
+      logged: false,
+      userId: null
     };
   },
   created() {
@@ -59,7 +60,15 @@ export default {
       this.logged = false;
       // Redirige al login
       this.$router.push({ name: 'Login' });
+    },
+    goToProfile() {
+    const id = localStorage.getItem('userId');
+    if (id) {
+      this.$router.push(`/profile/${id}`);
+    } else {
+      alert('No se encontró el ID del usuario.');
     }
+  }
   },
   watch: {
     '$route'(to) {

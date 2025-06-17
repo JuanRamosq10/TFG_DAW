@@ -1,5 +1,6 @@
 <template lang="pug">
 main
+  
   div.container
     article
       h1 Lo más reciente en SnapStory

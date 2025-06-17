@@ -130,6 +130,32 @@ app.get('/api/profile', verifyToken, (req, res) => {
   });
 });
 
+// ✅ Obtener todos los datos de un usuario por su ID (requiere token válido)
+app.get('/api/users/:userId', verifyToken, (req, res) => {
+  const userId = parseInt(req.params.userId, 10);
+
+  const query = `
+    SELECT user_id, username, full_name, email, profile_img, created_at
+    FROM users
+    WHERE user_id = ?
+  `;
+
+  db.query(query, [userId], (err, results) => {
+    if (err) {
+      console.error('❌ Error al consultar el usuario:', err);
+      return res.status(500).json({ message: 'Error del servidor' });
+    }
+
+    if (results.length === 0) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
+    }
+
+    res.json(results[0]); // Devuelve el usuario completo
+  });
+});
+
+
+
 // ----------- POSTS (ahora con contador de likes) ----------- //
 app.get('/api/posts', (req, res) => {
   const query = `
@@ -245,8 +271,9 @@ app.post('/api/posts', verifyToken, upload.single('image'), (req, res) => {
   });
 });
 
-app.get('/api/myposts', verifyToken, (req, res) => {
-  const userId = req.user.id;
+app.get('/api/posts/:userId', verifyToken, (req, res) => {
+  const userId = req.params.userId; // ← aquí el cambio
+
   const query = `
     SELECT posts.*, users.username, COUNT(likes.like_id) AS likes
     FROM posts 
@@ -255,6 +282,7 @@ app.get('/api/myposts', verifyToken, (req, res) => {
     WHERE posts.user_id = ?
     GROUP BY posts.post_id
   `;
+
   db.query(query, [userId], (err, results) => {
     if (err) {
       console.error('❌ Error en la consulta:', err);
@@ -263,6 +291,7 @@ app.get('/api/myposts', verifyToken, (req, res) => {
     res.json(results);
   });
 });
+
 
 app.delete('/api/posts/:postId', verifyToken, (req, res) => {
   const postId = req.params.postId;
@@ -343,9 +372,9 @@ app.put('/api/posts/:postId/description', verifyToken, (req, res) => {
 
 //****JUAN**********
 
-// ➤ Ruta para recuperar los seguidores de un usuario (requiere token válido)
-app.get('/api/seguidores', verifyToken, (req, res) => {
-  const userId = req.user.id;
+// ➤ Ruta para recuperar los seguidores de un usuario cualquiera (requiere token válido)
+app.get('/api/seguidores/:userId', verifyToken, (req, res) => {
+  const userId = req.params.userId;
   const query = `
     SELECT s.*, u.username, u.full_name
     FROM seguimientos s
@@ -367,9 +396,9 @@ app.get('/api/seguidores', verifyToken, (req, res) => {
   });
 });
 
-// ➤ Ruta para recuperar a quién sigue el usuario (requiere token válido)
-app.get('/api/seguidos', verifyToken, (req, res) => {
-  const userId = req.user.id;
+// ➤ Ruta para recuperar a quién sigue un usuario cualquiera (requiere token válido)
+app.get('/api/seguidos/:userId', verifyToken, (req, res) => {
+  const userId = req.params.userId;
   const query = `
     SELECT s.*, u.username, u.full_name
     FROM seguimientos s
@@ -390,6 +419,7 @@ app.get('/api/seguidos', verifyToken, (req, res) => {
     res.json(seguidos);
   });
 });
+
 
 // ➤ Ruta para seguir a un usuario (requiere token válido)
 app.post('/api/seguir/:userId', verifyToken, (req, res) => {
@@ -427,9 +457,39 @@ app.post('/api/seguir/:userId', verifyToken, (req, res) => {
   });
 });
 
-// Recoger posts compartidos por el usuario autenticado
-app.get('/api/sharedposts', verifyToken, (req, res) => {
+// ➤ Ruta para dejar de seguir a un usuario (requiere token válido)
+app.delete('/api/seguir/:userId', verifyToken, (req, res) => {
+  const userIdToUnfollow = parseInt(req.params.userId, 10);
   const userId = req.user.id;
+
+  if (userId === userIdToUnfollow) {
+    return res.status(400).json({ message: 'No puedes dejar de seguirte a ti mismo' });
+  }
+
+  const q = `
+    DELETE FROM seguimientos
+    WHERE seguidor_id = ? AND seguido_id = ?
+  `;
+
+  db.query(q, [userId, userIdToUnfollow], (err, result) => {
+    if (err) {
+      console.error('❌ Error dejando de seguir al usuario:', err);
+      return res.status(500).json({ message: 'Error del servidor' });
+    }
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'No estabas siguiendo a este usuario' });
+    }
+
+    console.log(`🚫 Usuario ${userId} dejó de seguir a ${userIdToUnfollow}`);
+    res.json({ message: 'Usuario dejado de seguir correctamente' });
+  });
+});
+
+
+// Posts compartidos de un usuario cualquiera
+app.get('/api/sharedposts/:userId', verifyToken, (req, res) => {
+  const userId = req.params.userId;
 
   const query = `
     SELECT p.*, u.username
@@ -448,10 +508,9 @@ app.get('/api/sharedposts', verifyToken, (req, res) => {
   });
 });
 
-
-// Recoger posts guardados por el usuario autenticado
-app.get('/api/savedposts', verifyToken, (req, res) => {
-  const userId = req.user.id;
+// Posts guardados de un usuario cualquiera
+app.get('/api/savedposts/:userId', verifyToken, (req, res) => {
+  const userId = req.params.userId;
 
   const query = `
     SELECT p.*, u.username
@@ -473,9 +532,13 @@ app.get('/api/savedposts', verifyToken, (req, res) => {
 
 
 
+
 //****JUAN**********
 
 // ----------- RUTAS DE CHAT ----------- //
+
+
+
 
 // Ruta para obtener chats del usuario logueado
 app.get('/api/chats', verifyToken, (req, res) => {

@@ -1,8 +1,8 @@
 <template lang="pug">
 figure.card.example-1
-  .wrapper(
-    :style="{ backgroundImage: post.source ? 'url(http://localhost:4000/' + post.source + ')' : 'url(https://placecats.com/300/300)' }"
-  )
+  .wrapper(:style="post.source ? `background-image: url('http://localhost:4000/${encodeURI(post.source)}')` : 'background-image: url(https://placecats.com/300/300)'")
+
+
     .date
       span.day {{ day }}
       span.month {{ month }}
@@ -10,7 +10,10 @@ figure.card.example-1
     .data
       .content
         .info-row
-          span.author Autor: {{ post.username }}
+          a.author(
+          :href="`/profile/${post.user_id}`"
+          title="Ver perfil de {{ post.username }}"
+          ) Autor: {{ post.username }}
           .icons
             a.las.la-bookmark(href="#", title="Guardar")
             a.las.la-heart(
