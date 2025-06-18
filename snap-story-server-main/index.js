@@ -24,6 +24,42 @@ app.use(cors({ origin: 'http://localhost:8080', credentials: true }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static('public'));
 
+
+
+
+// —> Aquí, justo después de los middlewares, insertas la ruta de búsqueda:
+app.get('/api/search', verifyToken, (req, res) => {
+  const term = `%${req.query.q || ''}%`;
+  // 1) Usuarios
+  const usersQ = `
+    SELECT user_id, username, full_name, profile_img
+    FROM users
+    WHERE username LIKE ? OR full_name LIKE ?
+    LIMIT 20
+  `;
+  db.query(usersQ, [term, term], (err, users) => {
+    if (err) return res.status(500).json({ message: 'Error buscando usuarios' });
+    // 2) Posts
+    const postsQ = `
+      SELECT p.post_id, p.title, p.description, p.source, p.user_id, u.username
+      FROM posts p
+      JOIN users u ON p.user_id = u.user_id
+      WHERE p.title LIKE ?
+      LIMIT 20
+    `;
+    db.query(postsQ, [term], (err, posts) => {
+      if (err) return res.status(500).json({ message: 'Error buscando posts' });
+      res.json({ users, posts });
+    });
+  });
+});
+
+
+
+
+
+
+
 // Multer setup
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, 'public/uploads/'),
@@ -636,6 +672,67 @@ app.get('/api/chats/:chatId/messages', verifyToken, (req, res) => {
     });
   });
 });
+
+
+
+
+
+
+// 2.3) Crear o recuperar chat con otro usuario
+app.post('/api/chats', verifyToken, (req, res) => {
+  const userId = req.user.id;
+  const otherId = parseInt(req.body.participantId, 10);
+  if (isNaN(otherId)) {
+    return res.status(400).json({ message: 'participantId inválido' });
+  }
+
+  // 1) Verificar si ya existe un chat con ambos
+  const findQuery = `
+    SELECT c.chat_id
+    FROM chats c
+    JOIN chat_participantes cp1 ON c.chat_id = cp1.chat_id AND cp1.user_id = ?
+    JOIN chat_participantes cp2 ON c.chat_id = cp2.chat_id AND cp2.user_id = ?
+    LIMIT 1
+  `;
+  db.query(findQuery, [userId, otherId], (err, rows) => {
+    if (err) return res.status(500).json({ message: 'Error interno' });
+
+    if (rows.length) {
+      // Ya existe: devolvemos chat_id
+      return res.json({ chatId: rows[0].chat_id });
+    }
+
+    // 2) Si no existe, lo creamos
+    db.beginTransaction(err => {
+      if (err) return res.status(500).json({ message: 'Error interno' });
+
+      // Inserta fila en chats
+      db.query('INSERT INTO chats (name) VALUES (NULL)', (err, result) => {
+        if (err) return db.rollback(() => res.status(500).json({ message: 'Error creando chat' }));
+        const chatId = result.insertId;
+
+        // Inserta participantes para ambos usuarios
+        const participants = [[chatId, userId], [chatId, otherId]];
+        db.query(
+          'INSERT INTO chat_participantes (chat_id, user_id) VALUES ?',
+          [participants],
+          err => {
+            if (err) return db.rollback(() => res.status(500).json({ message: 'Error añadiendo participantes' }));
+            db.commit(err => {
+              if (err) return db.rollback(() => res.status(500).json({ message: 'Error interno' }));
+              res.json({ chatId });
+            });
+          }
+        );
+      });
+    });
+  });
+});
+
+
+
+
+
 
 // ----------- SOCKET.IO CHAT ----------- //
 io.use((socket, next) => {

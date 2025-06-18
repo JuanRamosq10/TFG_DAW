@@ -4,28 +4,29 @@ main.profile
     div.cover-photo
     div.avatar-container
       h1 {{ username }}
-      p.bio Esta es tu biografía. Cuéntanos algo sobre ti.
-  
+      p.bio {{ bio }}
+
   // Botones condicionales
   div.button-wrapper
-  div.buttons(v-if="isCurrentUser")
-    button.btn-edit Editar Perfil
-  div.buttons(v-else)
-    button.btn-follow(@click="toggleSeguir") {{ yaSigo ? 'Dejar de seguir' : 'Seguir' }}
-    button.btn-message Enviar mensaje
-
-
+    div.buttons(v-if="isCurrentUser")
+      button.btn-edit(@click="editarPerfil") Editar Perfil
+    div.buttons(v-else)
+      button.btn-follow(
+        @click="toggleSeguir"
+        v-text="yaSigo ? 'Dejar de seguir' : 'Seguir'"
+      )
+      button.btn-message(@click="createOrOpenChat") Enviar mensaje
 
   section.profile-stats
     div.stat
       span.count {{ posts.length }}
-      span.label  Publicaciones
+      span.label Publicaciones
     div.stat
       span.count {{ seguidores.length }}
-      span.label  Seguidores
+      span.label Seguidores
     div.stat
       span.count {{ seguidos.length }}
-      span.label  Siguiendo
+      span.label Siguiendo
 
   section.profile-tabs
     button(
@@ -39,7 +40,6 @@ main.profile
     h2(v-text="tabTitles[currentTab]")
     div.posts-grid
       PostGrid(:posts="currentPosts" :showLike="false")
-      
 </template>
 
 <script>
@@ -51,14 +51,15 @@ export default {
   data() {
     return {
       username: '',
+      bio: '',
       currentTab: 0,
-      tabTitles: ['Publicaciones', 'Publicaciones guardadas', 'Publicaciones compartidas'],
+      tabTitles: ['Publicaciones', 'Guardadas', 'Compartidas'],
       myPosts: [],
       savedPosts: [],
       sharedPosts: [],
       seguidores: [],
       seguidos: [],
-      yaSigo: false  // 👈 asegúrate que esté aquí
+      yaSigo: false
     };
   },
   computed: {
@@ -72,54 +73,51 @@ export default {
       return [];
     },
     isCurrentUser() {
-    const loggedUserId = localStorage.getItem('userId');
-    const profileUserId = this.$route.params.userId;
-    return loggedUserId === profileUserId;
+      return String(localStorage.getItem('userId')) === this.$route.params.userId;
     }
   },
-  mounted() {
-    this.loadProfileData();
+  async mounted() {
+    this.username = localStorage.getItem('username') || 'Invitado';
+    this.bio = localStorage.getItem('bio') || '';
+    await this.loadProfileData();
   },
   watch: {
-    '$route.params.userId'(newUserId, oldUserId) {
-      if (newUserId !== oldUserId) {
-        this.loadProfileData();
-      }
+    '$route.params.userId'(newId, oldId) {
+      if (newId !== oldId) this.loadProfileData();
     }
   },
   methods: {
-    loadProfileData() {
-      this.checkSiYaSigo();
-      this.fetchMyPosts();
-      this.fetchSavedPosts();
-      this.fetchSharedPosts();
-      this.getSeguidores();
-      this.getSeguidos();
-      this.fetchProfileUser();
+    async loadProfileData() {
+      await Promise.all([
+        this.fetchProfileUser(),
+        this.fetchMyPosts(),
+        this.fetchSavedPosts(),
+        this.fetchSharedPosts(),
+        this.getSeguidores(),
+        this.getSeguidos()
+      ]);
+      if (!this.isCurrentUser) {
+        this.checkSiYaSigo();
+      }
     },
+    // 1. Datos de usuario
     async fetchProfileUser() {
       try {
         const token = localStorage.getItem('token');
         const userId = this.$route.params.userId;
-
         const res = await fetch(`http://localhost:4000/api/users/${userId}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
-
         if (res.ok) {
           const user = await res.json();
           this.username = user.username;
-          this.fullName = user.full_name;
-          this.bio = user.bio || ''; // Si agregas biografía
-          this.profileImg = user.profile_img;
-          this.email = user.email;
-        } else {
-          console.error('❌ Error al obtener perfil:', await res.text());
+          this.bio = user.bio || '';
         }
       } catch (e) {
-        console.error('❌ Error en fetchProfileUser:', e);
+        console.error('Error fetchProfileUser:', e);
       }
     },
+    // 2. Publicaciones
     async fetchMyPosts() {
       try {
         const token = localStorage.getItem('token');
@@ -129,7 +127,7 @@ export default {
         });
         if (res.ok) this.myPosts = await res.json();
       } catch (e) {
-        console.error('Error al obtener publicaciones:', e);
+        console.error('Error fetchMyPosts:', e);
       }
     },
     async fetchSavedPosts() {
@@ -141,7 +139,7 @@ export default {
         });
         if (res.ok) this.savedPosts = await res.json();
       } catch (e) {
-        console.error('Error al obtener guardados:', e);
+        console.error('Error fetchSavedPosts:', e);
       }
     },
     async fetchSharedPosts() {
@@ -153,20 +151,21 @@ export default {
         });
         if (res.ok) this.sharedPosts = await res.json();
       } catch (e) {
-        console.error('Error al obtener compartidos:', e);
+        console.error('Error fetchSharedPosts:', e);
       }
     },
+    // 3. Seguidores / Seguidos
     async getSeguidores() {
       try {
         const token = localStorage.getItem('token');
         const userId = this.$route.params.userId;
         const res = await fetch(`http://localhost:4000/api/seguidores/${userId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (res.ok) this.seguidores = await res.json();
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) this.seguidores = await res.json();
       } catch (e) {
-        console.error('Error al obtener seguidores:', e);
-    }
+        console.error('Error getSeguidores:', e);
+      }
     },
     async getSeguidos() {
       try {
@@ -176,9 +175,8 @@ export default {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (res.ok) this.seguidos = await res.json();
-        console.log('📌 Seguidores:', this.seguidores);
       } catch (e) {
-        console.error('Error al obtener seguidos:', e);
+        console.error('Error getSeguidos:', e);
       }
     },
     async checkSiYaSigo() {
@@ -186,52 +184,64 @@ export default {
         const token = localStorage.getItem('token');
         const userId = this.$route.params.userId;
         const miId = parseInt(localStorage.getItem('userId'));
-
         const res = await fetch(`http://localhost:4000/api/seguidores/${userId}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
-
         if (res.ok) {
-          const seguidores = await res.json();
-          this.seguidores = seguidores;
-
-          // Busca si el logueado está en la lista de seguidores
-          this.yaSigo = seguidores.some(s => s.user_id === miId);
-          console.log('¿Ya sigo?', this.yaSigo);
+          const list = await res.json();
+          this.yaSigo = list.some(s => s.user_id === miId);
         }
       } catch (e) {
-        console.error('Error verificando si ya sigues al usuario:', e);
+        console.error('Error checkSiYaSigo:', e);
       }
     },
     async toggleSeguir() {
-  const token = localStorage.getItem('token');
-  const userId = this.$route.params.userId;
-  const miId = localStorage.getItem('userId');
-
-  try {
-    const url = `http://localhost:4000/api/seguir/${userId}`;
-    const options = {
-      method: this.yaSigo ? 'DELETE' : 'POST',
-      headers: { Authorization: `Bearer ${token}` }
-    };
-
-    const res = await fetch(url, options);
-
-    if (res.ok) {
-      this.yaSigo = !this.yaSigo; // Cambia el estado visual del botón
-      await this.getSeguidores(); // Refresca la lista para actualizar los contadores
-    } else {
-      const errData = await res.json();
-      console.error('Error:', errData.message);
+      try {
+        const token = localStorage.getItem('token');
+        const userId = this.$route.params.userId;
+        const method = this.yaSigo ? 'DELETE' : 'POST';
+        const res = await fetch(`http://localhost:4000/api/seguir/${userId}`, {
+          method,
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          this.yaSigo = !this.yaSigo;
+          this.getSeguidores();
+        }
+      } catch (e) {
+        console.error('Error toggleSeguir:', e);
+      }
+    },
+    // 4. Chat
+    async createOrOpenChat() {
+      try {
+        const token = localStorage.getItem('token');
+        const participantId = parseInt(this.$route.params.userId);
+        const res = await fetch('http://localhost:4000/api/chats', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ participantId })
+        });
+        if (res.ok) {
+          const { chatId } = await res.json();
+          this.$router.push({ name: 'Chat', params: { chatId } });
+        } else {
+          alert('No se pudo abrir el chat, inténtalo de nuevo.');
+        }
+      } catch (e) {
+        console.error('Error createOrOpenChat:', e);
+        alert('Hubo un problema al iniciar el chat.');
+      }
+    },
+    // 5. Edición de perfil
+    editarPerfil() {
+      this.$router.push({ name: 'EditProfile' });
     }
-  } catch (e) {
-    console.error('Error al alternar seguimiento:', e);
-  }
-}
-
   }
 };
-
 </script>
 
 <style scoped>
@@ -255,6 +265,33 @@ export default {
 .bio {
   font-style: italic;
   color: #666;
+}
+.button-wrapper {
+  display: flex;
+  justify-content: center;
+  margin: 15px 0;
+}
+.buttons {
+  display: flex;
+  gap: 10px;
+}
+.btn-edit,
+.btn-follow,
+.btn-message {
+  background-color: #ffc107;
+  border: none;
+  border-radius: 20px;
+  padding: 6px 16px;
+  font-size: 0.85em;
+  font-weight: bold;
+  color: #fff;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+.btn-edit:hover,
+.btn-follow:hover,
+.btn-message:hover {
+  background-color: #e0a800;
 }
 .profile-stats {
   display: flex;
@@ -289,36 +326,12 @@ export default {
   background-color: #034378;
   color: white;
 }
-.button-wrapper {
-  display: flex;
-  justify-content: center;
-  margin: 15px 0;
+section.profile-posts {
+  padding: 0 20px;
 }
-
-.buttons {
-  display: flex;
+.posts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 10px;
 }
-
-.btn-edit,
-.btn-follow,
-.btn-message {
-  background-color: #ffc107;
-  border: none;
-  border-radius: 20px;
-  padding: 6px 16px;
-  font-size: 0.85em;
-  font-weight: bold;
-  color: #fff;
-  cursor: pointer;
-  transition: background-color 0.3s;
-}
-
-.btn-edit:hover,
-.btn-follow:hover,
-.btn-message:hover {
-  background-color: #e0a800;
-}
-
-
 </style>
