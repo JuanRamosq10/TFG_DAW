@@ -94,7 +94,7 @@ export default {
           // Guarda el token en localStorage
           localStorage.setItem("token", response.data.token);
           localStorage.setItem("username", response.data.user.username); // guarda el username en localStorage
-          localStorage.setItem("userId", response.data.user.userId) // guarda el userId en localStorage
+          localStorage.setItem("userId", response.data.user.id) // guarda el userId en localStorage
           // Redirige a la página de home
           router.push({ name: 'Home' });
         } else {

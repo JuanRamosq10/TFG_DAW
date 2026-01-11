@@ -24,6 +24,42 @@ app.use(cors({ origin: 'http://localhost:8080', credentials: true }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static('public'));
 
+
+
+
+// —> Aquí, justo después de los middlewares, insertas la ruta de búsqueda:
+app.get('/api/search', verifyToken, (req, res) => {
+  const term = `%${req.query.q || ''}%`;
+  // 1) Usuarios
+  const usersQ = `
+    SELECT user_id, username, full_name, profile_img
+    FROM users
+    WHERE username LIKE ? OR full_name LIKE ?
+    LIMIT 20
+  `;
+  db.query(usersQ, [term, term], (err, users) => {
+    if (err) return res.status(500).json({ message: 'Error buscando usuarios' });
+    // 2) Posts
+    const postsQ = `
+      SELECT p.post_id, p.title, p.description, p.source, p.user_id, u.username
+      FROM posts p
+      JOIN users u ON p.user_id = u.user_id
+      WHERE p.title LIKE ?
+      LIMIT 20
+    `;
+    db.query(postsQ, [term], (err, posts) => {
+      if (err) return res.status(500).json({ message: 'Error buscando posts' });
+      res.json({ users, posts });
+    });
+  });
+});
+
+
+
+
+
+
+
 // Multer setup
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, 'public/uploads/'),
@@ -130,32 +166,61 @@ app.get('/api/profile', verifyToken, (req, res) => {
   });
 });
 
+// ✅ Obtener todos los datos de un usuario por su ID (requiere token válido)
+app.get('/api/users/:userId', verifyToken, (req, res) => {
+  const userId = parseInt(req.params.userId, 10);
+
+  const query = `
+    SELECT user_id, username, full_name, email, profile_img, created_at
+    FROM users
+    WHERE user_id = ?
+  `;
+
+  db.query(query, [userId], (err, results) => {
+    if (err) {
+      console.error('❌ Error al consultar el usuario:', err);
+      return res.status(500).json({ message: 'Error del servidor' });
+    }
+
+    if (results.length === 0) {
+      return res.status(404).json({ message: 'Usuario no encontrado' });
+    }
+
+    res.json(results[0]); // Devuelve el usuario completo
+  });
+});
+
+
+
 // ----------- POSTS (ahora con contador de likes) ----------- //
 app.get('/api/posts', (req, res) => {
   const query = `
-    SELECT 
-      posts.post_id,
-      posts.title,
-      posts.description,
-      posts.source,
-      posts.user_id,
-      posts.created_at,
-      users.username,
-      COUNT(likes.like_id) AS likes
-    FROM posts
-    LEFT JOIN users ON posts.user_id = users.user_id
-    LEFT JOIN likes ON posts.post_id = likes.post_id
-    GROUP BY posts.post_id
-  `;
+  SELECT
+    p.post_id,
+    p.title,
+    p.description,
+    p.source,
+    p.user_id,
+    p.created_at,
+    u.username,
+    COUNT(DISTINCT l.like_id)           AS likes,
+    COUNT(DISTINCT c.comentario_id)     AS comments
+  FROM posts p
+  LEFT JOIN users u       ON p.user_id = u.user_id
+  LEFT JOIN likes l       ON p.post_id = l.post_id
+  LEFT JOIN comentarios c ON p.post_id = c.post_comentado_id
+  GROUP BY p.post_id
+`;
   db.query(query, (err, results) => {
     if (err) {
       console.error('❌ Error en la consulta:', err);
       return res.status(500).json({ message: 'Error del servidor' });
     }
-    const posts = results.map(post => ({
-      ...post,
-      likes: Number(post.likes) || 0
-    }));
+const posts = results.map(p => ({
+  ...p,
+  likes:    Number(p.likes)    || 0,
+  comments: Number(p.comments) || 0
+}));
     res.json(posts);
   });
 });
@@ -242,8 +307,9 @@ app.post('/api/posts', verifyToken, upload.single('image'), (req, res) => {
   });
 });
 
-app.get('/api/myposts', verifyToken, (req, res) => {
-  const userId = req.user.id;
+app.get('/api/posts/:userId', verifyToken, (req, res) => {
+  const userId = req.params.userId; // ← aquí el cambio
+
   const query = `
     SELECT posts.*, users.username, COUNT(likes.like_id) AS likes
     FROM posts 
@@ -252,6 +318,7 @@ app.get('/api/myposts', verifyToken, (req, res) => {
     WHERE posts.user_id = ?
     GROUP BY posts.post_id
   `;
+
   db.query(query, [userId], (err, results) => {
     if (err) {
       console.error('❌ Error en la consulta:', err);
@@ -260,6 +327,7 @@ app.get('/api/myposts', verifyToken, (req, res) => {
     res.json(results);
   });
 });
+
 
 app.delete('/api/posts/:postId', verifyToken, (req, res) => {
   const postId = req.params.postId;
@@ -340,9 +408,9 @@ app.put('/api/posts/:postId/description', verifyToken, (req, res) => {
 
 //****JUAN**********
 
-// ➤ Ruta para recuperar los seguidores de un usuario (requiere token válido)
-app.get('/api/seguidores', verifyToken, (req, res) => {
-  const userId = req.user.id;
+// ➤ Ruta para recuperar los seguidores de un usuario cualquiera (requiere token válido)
+app.get('/api/seguidores/:userId', verifyToken, (req, res) => {
+  const userId = req.params.userId;
   const query = `
     SELECT s.*, u.username, u.full_name
     FROM seguimientos s
@@ -364,9 +432,9 @@ app.get('/api/seguidores', verifyToken, (req, res) => {
   });
 });
 
-// ➤ Ruta para recuperar a quién sigue el usuario (requiere token válido)
-app.get('/api/seguidos', verifyToken, (req, res) => {
-  const userId = req.user.id;
+// ➤ Ruta para recuperar a quién sigue un usuario cualquiera (requiere token válido)
+app.get('/api/seguidos/:userId', verifyToken, (req, res) => {
+  const userId = req.params.userId;
   const query = `
     SELECT s.*, u.username, u.full_name
     FROM seguimientos s
@@ -387,6 +455,7 @@ app.get('/api/seguidos', verifyToken, (req, res) => {
     res.json(seguidos);
   });
 });
+
 
 // ➤ Ruta para seguir a un usuario (requiere token válido)
 app.post('/api/seguir/:userId', verifyToken, (req, res) => {
@@ -424,9 +493,39 @@ app.post('/api/seguir/:userId', verifyToken, (req, res) => {
   });
 });
 
-// Recoger posts compartidos por el usuario autenticado
-app.get('/api/sharedposts', verifyToken, (req, res) => {
+// ➤ Ruta para dejar de seguir a un usuario (requiere token válido)
+app.delete('/api/seguir/:userId', verifyToken, (req, res) => {
+  const userIdToUnfollow = parseInt(req.params.userId, 10);
   const userId = req.user.id;
+
+  if (userId === userIdToUnfollow) {
+    return res.status(400).json({ message: 'No puedes dejar de seguirte a ti mismo' });
+  }
+
+  const q = `
+    DELETE FROM seguimientos
+    WHERE seguidor_id = ? AND seguido_id = ?
+  `;
+
+  db.query(q, [userId, userIdToUnfollow], (err, result) => {
+    if (err) {
+      console.error('❌ Error dejando de seguir al usuario:', err);
+      return res.status(500).json({ message: 'Error del servidor' });
+    }
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'No estabas siguiendo a este usuario' });
+    }
+
+    console.log(`🚫 Usuario ${userId} dejó de seguir a ${userIdToUnfollow}`);
+    res.json({ message: 'Usuario dejado de seguir correctamente' });
+  });
+});
+
+
+// Posts compartidos de un usuario cualquiera
+app.get('/api/sharedposts/:userId', verifyToken, (req, res) => {
+  const userId = req.params.userId;
 
   const query = `
     SELECT p.*, u.username
@@ -445,10 +544,9 @@ app.get('/api/sharedposts', verifyToken, (req, res) => {
   });
 });
 
-
-// Recoger posts guardados por el usuario autenticado
-app.get('/api/savedposts', verifyToken, (req, res) => {
-  const userId = req.user.id;
+// Posts guardados de un usuario cualquiera
+app.get('/api/savedposts/:userId', verifyToken, (req, res) => {
+  const userId = req.params.userId;
 
   const query = `
     SELECT p.*, u.username
@@ -470,9 +568,13 @@ app.get('/api/savedposts', verifyToken, (req, res) => {
 
 
 
+
 //****JUAN**********
 
 // ----------- RUTAS DE CHAT ----------- //
+
+
+
 
 // Ruta para obtener chats del usuario logueado
 app.get('/api/chats', verifyToken, (req, res) => {
@@ -571,6 +673,67 @@ app.get('/api/chats/:chatId/messages', verifyToken, (req, res) => {
   });
 });
 
+
+
+
+
+
+// 2.3) Crear o recuperar chat con otro usuario
+app.post('/api/chats', verifyToken, (req, res) => {
+  const userId = req.user.id;
+  const otherId = parseInt(req.body.participantId, 10);
+  if (isNaN(otherId)) {
+    return res.status(400).json({ message: 'participantId inválido' });
+  }
+
+  // 1) Verificar si ya existe un chat con ambos
+  const findQuery = `
+    SELECT c.chat_id
+    FROM chats c
+    JOIN chat_participantes cp1 ON c.chat_id = cp1.chat_id AND cp1.user_id = ?
+    JOIN chat_participantes cp2 ON c.chat_id = cp2.chat_id AND cp2.user_id = ?
+    LIMIT 1
+  `;
+  db.query(findQuery, [userId, otherId], (err, rows) => {
+    if (err) return res.status(500).json({ message: 'Error interno' });
+
+    if (rows.length) {
+      // Ya existe: devolvemos chat_id
+      return res.json({ chatId: rows[0].chat_id });
+    }
+
+    // 2) Si no existe, lo creamos
+    db.beginTransaction(err => {
+      if (err) return res.status(500).json({ message: 'Error interno' });
+
+      // Inserta fila en chats
+      db.query('INSERT INTO chats (name) VALUES (NULL)', (err, result) => {
+        if (err) return db.rollback(() => res.status(500).json({ message: 'Error creando chat' }));
+        const chatId = result.insertId;
+
+        // Inserta participantes para ambos usuarios
+        const participants = [[chatId, userId], [chatId, otherId]];
+        db.query(
+          'INSERT INTO chat_participantes (chat_id, user_id) VALUES ?',
+          [participants],
+          err => {
+            if (err) return db.rollback(() => res.status(500).json({ message: 'Error añadiendo participantes' }));
+            db.commit(err => {
+              if (err) return db.rollback(() => res.status(500).json({ message: 'Error interno' }));
+              res.json({ chatId });
+            });
+          }
+        );
+      });
+    });
+  });
+});
+
+
+
+
+
+
 // ----------- SOCKET.IO CHAT ----------- //
 io.use((socket, next) => {
   const { token: authToken } = socket.handshake.auth;
@@ -617,6 +780,74 @@ io.on('connection', socket => {
     console.log(`❌ Usuario desconectado: ${socket.user.username}`);
   });
 });
+
+
+
+/* ───────────── COMENTARIOS ───────────── */
+
+// 1) Obtener todos los comentarios de un post
+app.get('/api/posts/:postId/comments', (req, res) => {
+  const postId = parseInt(req.params.postId, 10);
+
+  const q = `
+    SELECT
+      c.comentario_id,
+      c.comentario_text,
+      c.created_at,
+      u.user_id,
+      u.username,
+      u.full_name
+    FROM comentarios c
+    JOIN users u ON u.user_id = c.usuario_comenta_id
+    WHERE c.post_comentado_id = ?
+    ORDER BY c.created_at ASC
+  `;
+
+  db.query(q, [postId], (err, rows) => {
+    if (err) {
+      console.error('❌ Error al obtener comentarios:', err);
+      return res.status(500).json({ message: 'Error del servidor' });
+    }
+    res.json(rows);
+  });
+});
+
+// 2) Añadir un comentario a un post (requiere token)
+app.post('/api/posts/:postId/comments', verifyToken, (req, res) => {
+  const postId         = parseInt(req.params.postId, 10);
+  const userId         = req.user.id;
+  const { comentario } = req.body;
+
+  if (!comentario?.trim()) {
+    return res.status(400).json({ message: 'El comentario no puede estar vacío' });
+  }
+
+  const q = `
+    INSERT INTO comentarios (comentario_text, usuario_comenta_id, post_comentado_id)
+    VALUES (?, ?, ?)
+  `;
+
+  db.query(q, [comentario.trim(), userId, postId], (err, result) => {
+    if (err) {
+      console.error('❌ Error al insertar comentario:', err);
+      return res.status(500).json({ message: 'Error del servidor' });
+    }
+
+    res.json({
+      comentario_id:  result.insertId,
+      comentario_text: comentario.trim(),
+      created_at:      new Date(),
+      user_id:         userId,
+      username:        req.user.username
+    });
+  });
+});
+
+
+
+
+
+
 
 // ----------- INICIO SERVIDOR ----------- //
 server.listen(4000, () => {
